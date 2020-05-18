@@ -91,6 +91,14 @@
 
 #include "activity_monitor.h"
 
+// make the first audio packet deliberately early to bias the sync error of
+// the very first packet, making the error more likely to be too early
+// rather than too late. It it's too early,
+// a delay exactly compensating for it can be sent just before the
+// first packet. This should exactly compensate for the error.
+
+int64_t first_frame_early_bias = 8;
+
 // default buffer size
 // needs to be a power of 2 because of the way BUFIDX(seqno) works
 //#define BUFFER_FRAMES 512
@@ -1184,6 +1192,8 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
                     // add the remaining silence needed and end buffering
                     if (exact_frame_gap <= conn->max_frames_per_packet * 2) {
                       fs = exact_frame_gap;
+                      if (fs > first_frame_early_bias)
+                      	fs = fs - first_frame_early_bias; // deliberately make the first packet a tiny bit early so that the player may compensate for it at the last minute
                       conn->ab_buffering = 0;
                     }
                     void *silence;
@@ -1779,6 +1789,7 @@ void *player_thread_func(void *arg) {
   stats_t statistics[trend_interval];
   int number_of_statistics, oldest_statistic, newest_statistic;
   int at_least_one_frame_seen = 0;
+  int at_least_one_frame_seen_this_session = 0;
   int64_t tsum_of_sync_errors, tsum_of_corrections, tsum_of_insertions_and_deletions,
       tsum_of_drifts;
   int64_t previous_sync_error = 0, previous_correction = 0;
@@ -2262,15 +2273,41 @@ void *player_thread_func(void *arg) {
                          (int64_t)(config.audio_backend_latency_offset *
                                    config.output_rate)); // int64_t from int64_t - int32_t, so okay
 
-            // debug(1,"%" PRId64 "",sync_error,inbuflength);
+            if (at_least_one_frame_seen_this_session == 0) {
+            	at_least_one_frame_seen_this_session = 1;
+            	// the very first packet has a first_frame_early_bias subtracted from its timing
+            	// to make it more likely that the first sync error will be negative,
+            	// making it possible to compensate for it be adding a few frames of silence.
 
-            // not too sure if abs() is implemented for int64_t, so we'll do it manually
-            if (at_least_one_frame_seen == 0) {
-              at_least_one_frame_seen = 1;
-              debug(1, " First audio frame sync error: %.3f milliseconds.",
-                    (1000.0 * sync_error) / config.output_rate);
+            	// remove the bias when reporting the error to make it the true error
+            	debug(2,"first frame sync error (positive --> late): %" PRId64 " frames, %.3f mS at %d frames per second output.", sync_error+first_frame_early_bias, (1000.0*(sync_error+first_frame_early_bias))/config.output_rate, config.output_rate);
+
+            	// if the packet is early, add the frames needed to put it in sync. It should be made a tiny bit early on purpose
+            	if (sync_error < 0) {
+            	  size_t final_adjustment_length_sized = -sync_error;
+                char *final_adjustment_silence = malloc(conn->output_bytes_per_frame * final_adjustment_length_sized);
+                if (final_adjustment_silence) {
+
+                  conn->previous_random_number =
+                      generate_zero_frames(final_adjustment_silence, final_adjustment_length_sized, config.output_format,
+                                           conn->enable_dither, conn->previous_random_number);
+
+                  debug(2, "make a final sync adjustment of %d frames.", final_adjustment_length_sized - first_frame_early_bias);
+                  config.output->play(final_adjustment_silence, final_adjustment_length_sized);
+                  free(final_adjustment_silence);
+                } else {
+                  warn("Failed to allocate memory for a final__adjustment_silence buffer of %d frames for a "
+                       "sync error of %d frames.",
+                       final_adjustment_length_sized, sync_error);
+                }
+                sync_error = 0; // say the error was fixed!
+              }
             }
 
+
+            at_least_one_frame_seen = 1;
+
+            // not too sure if abs() is implemented for int64_t, so we'll do it manually
             int64_t abs_sync_error = sync_error;
             if (abs_sync_error < 0)
               abs_sync_error = -abs_sync_error;
