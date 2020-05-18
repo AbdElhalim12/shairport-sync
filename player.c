@@ -1176,12 +1176,9 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
               // do some calculations
               int64_t lead_time = conn->first_packet_time_to_play - local_time_now;
               if ((config.audio_backend_silent_lead_in_time_auto == 1) || (lead_time <= (int64_t)(config.audio_backend_silent_lead_in_time * (int64_t)1000000000))) {
-              	debug(2,"Lead time: %" PRId64 ".", lead_time);
-
-                // debug(1,"Checking");
-                if (config.output->delay) {
-                  // conn->first_packet_time_to_play is definitely later than local_time_now
-                  debug(2,"Checking");
+              	debug(3,"Lead time: %" PRId64 ".", lead_time);
+                if (config.output->delay) { // if the output device has a delay function
+                  debug(3,"Checking");
                   int resp = 0;
                   dac_delay = 0;
                   if (have_sent_prefiller_silence != 0)
@@ -1275,24 +1272,27 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
                           // packets.",exact_frame_gap,dac_delay,seq_diff(conn->ab_read,
                           // conn->ab_write, conn->ab_read));
                           config.output->play(silence, fs);
-                          debug(2,"Sent %" PRId64 " frames of silence",fs);
+                          debug(3,"Sent %" PRId64 " frames of silence",fs);
                           free(silence);
                           have_sent_prefiller_silence = 1;
                         }
                       }
 //                    }
                   } else {
-                  	debug(2,"Response is: %d.", resp);
-                    if ((resp == sps_extra_code_output_stalled) &&
-                        (conn->unfixable_error_reported == 0)) {
-                      conn->unfixable_error_reported = 1;
-                      if (config.cmd_unfixable) {
-                        command_execute(config.cmd_unfixable, "output_device_stalled", 1);
-                      } else {
-                        warn(
-                            "an unrecoverable error, \"output_device_stalled\", has been detected.",
-                            conn->connection_number);
+
+                    if (resp == sps_extra_code_output_stalled) {
+                      if (conn->unfixable_error_reported == 0) {
+												conn->unfixable_error_reported = 1;
+												if (config.cmd_unfixable) {
+													command_execute(config.cmd_unfixable, "output_device_stalled", 1);
+												} else {
+													warn(
+															"an unrecoverable error, \"output_device_stalled\", has been detected.",
+															conn->connection_number);
+												}
                       }
+                    } else {
+                    	debug(2,"Unexpected response to getting dac delay: %d.", resp);
                     }
                   }
                 } else {
