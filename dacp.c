@@ -154,7 +154,7 @@ int dacp_send_command(const char *command, char **body, ssize_t *bodysize) {
   // debug(1,"dacp_send_command: command is: \"%s\".",command);
 
   if (dacp_server.port == 0) {
-    debug(2, "No DACP port specified yet");
+    debug(3, "No DACP port specified yet");
     result = 490; // no port specified
   } else {
 
@@ -504,7 +504,7 @@ void *dacp_monitor_thread_code(__attribute__((unused)) void *na) {
                (metadata_store.advanced_dacp_server_active != 0);
       metadata_store.dacp_server_active = 0;
       metadata_store.advanced_dacp_server_active = 0;
-      debug(2,
+      debug(3,
             "setting metadata_store.dacp_server_active and "
             "metadata_store.advanced_dacp_server_active to 0 with an update "
             "flag value of %d",
