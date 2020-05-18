@@ -2276,6 +2276,8 @@ void *player_thread_func(void *arg) {
             if (at_least_one_frame_seen_this_session == 0) {
             	at_least_one_frame_seen_this_session = 1;
 
+              // debug(2,"first frame real sync error (positive --> late): %" PRId64 " frames.", sync_error);
+
             	// this is a sneaky attempt to make a final adjustment to the timing of the first packet
 
             	// the very first packet generally has a first_frame_early_bias subtracted from its timing
