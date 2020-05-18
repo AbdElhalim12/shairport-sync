@@ -1122,13 +1122,13 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
 
               conn->first_packet_time_to_play = should_be_time;
 
+/*
             // we want the frames of silence sent at the start to be fairly large in case the output
             // device's minimum buffer size is large. But they can't be greater than the silent
             // lead_in time
             // which is either the agreed latency or the silent lead-in time specified by the
             // setting
             // In fact, if should be some fraction of them, to allow for adjustment.
-
             int64_t adjustment_interval_frames = (int64_t)(config.lead_in_silence_adjustment_interval * conn->input_rate);
             int64_t initial_silence_frames = (int64_t)(config.lead_in_silence_initial_period * conn->input_rate);
 
@@ -1137,10 +1137,9 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
               max_dac_delay =
                   (int64_t)(config.audio_backend_silent_lead_in_time * conn->input_rate);
 
-            // should check that the audio_backend_silent_lead_in_time is greater than the desired_buffer_size
-
             int64_t filler_size = adjustment_interval_frames;
 
+            // should check that the audio_backend_silent_lead_in_time is greater than the desired_buffer_size
             if (have_sent_prefiller_silence == 0) {
             	int64_t delay_before_adjustments = max_dac_delay - config.lead_in_silence_minimum_adjustments_to_make * adjustment_interval_frames;
             	if (delay_before_adjustments > initial_silence_frames)
@@ -1149,6 +1148,7 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
             		filler_size = max_dac_delay / (config.lead_in_silence_minimum_adjustments_to_make + 1);
             	// debug(1,"Initial filler size: %" PRId64 " frames.", filler_size);
             }
+            */
 
             if (local_time_now > conn->first_packet_time_to_play) {
               uint64_t lateness = local_time_now - conn->first_packet_time_to_play;
@@ -1187,23 +1187,24 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
                     int64_t gross_frame_gap =
                         ((conn->first_packet_time_to_play - local_time_now) * config.output_rate) / 1000000000;
                     int64_t exact_frame_gap = gross_frame_gap - dac_delay;
+                    int64_t frames_needed_to_maintain_desired_buffer = (int64_t)(config.audio_backend_buffer_desired_length * config.output_rate) - dac_delay;
                     // debug(1,"Exact and gross frame gaps are %" PRId64 " and %" PRId64 " frames,
                     // and the dac delay is %ld.", exact_frame_gap, gross_frame_gap, dac_delay);
+                    	/*
                     if (exact_frame_gap < 0) {
                       // we've gone past the time...
-                      // debug(1,"Run past time.");
-
+                      debug(1,"Run past time.");
                       // this might happen if a big clock adjustment was made at just the wrong
                       // time.
 
                       debug(1, "Run a bit past the exact start time by %" PRId64
                                " frames with a DAC delay of %ld frames.",
                             -exact_frame_gap, dac_delay);
-                      if (config.output->flush)
-                        config.output->flush();
-                      ab_resync(conn);
-                      conn->first_packet_timestamp = 0;
-                      conn->first_packet_time_to_play = 0;
+                      //if (config.output->flush)
+                      //  config.output->flush();
+                      //ab_resync(conn);
+                      //conn->first_packet_timestamp = 0;
+                      //conn->first_packet_time_to_play = 0;
                     } else {
                       int64_t fs = filler_size;
                       if (fs > (max_dac_delay - dac_delay))
@@ -1222,14 +1223,29 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
                               max_dac_delay, dac_delay);
                         fs = 0;
                       }
-                      if ((exact_frame_gap <= fs) ||
-                          (exact_frame_gap <= conn->max_frames_per_packet * 2)) {
+                      */
+
+                      // below, remember that exact_frame_gap and frames_needed_to_maintain_desired_buffer could both be negative
+                      int64_t fs = frames_needed_to_maintain_desired_buffer;
+
+                      // if there isn't enough time to have the desired buffer size
+                      if (exact_frame_gap <= frames_needed_to_maintain_desired_buffer) {
+                      	fs = conn->max_frames_per_packet * 2;
+                      	/*
+                      	if (fs > exact_frame_gap)
+
+                      	//fs = exact_frame_gap - conn->max_frames_per_packet;
+                      	// if there isn't even enough time to do that...
+                      	if (fs < 0) {
+                      		debug(1,"no enough time even to break for a last check");
+                      		// just go with the exact frame gap
+                      		fs = exact_frame_gap;
+                      		conn->ab_buffering = 0;
+                      	}
+                      	*/
+                      }
+											if (exact_frame_gap <= conn->max_frames_per_packet * 2) {
                         fs = exact_frame_gap;
-                        // debug(1,"Exact frame gap is %llu; play %d frames of silence. Dac_delay is
-                        // %d,
-                        // with %d packets, ab_read is %04x, ab_write is
-                        // %04x.",exact_frame_gap,fs,dac_delay,seq_diff(ab_read,
-                        // ab_write),ab_read,ab_write);
                         conn->ab_buffering = 0;
                       }
                       void *silence;
@@ -1258,11 +1274,11 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
                           config.output->play(silence, fs);
                           // debug(1,"Sent %" PRId64 " frames of silence",fs);
                           free(silence);
+                          have_sent_prefiller_silence = 1;
+
                         }
                       }
-                      have_sent_prefiller_silence =
-                          1; // even if we haven't sent silence because it's zero frames long...
-                    }
+//                    }
                   } else {
                     if ((resp == sps_extra_code_output_stalled) &&
                         (conn->unfixable_error_reported == 0)) {
@@ -2162,8 +2178,6 @@ void *player_thread_func(void *arg) {
           // If it's late, we remove an audio frame from this frame to bring a subsequent frame
           // forward in time
 
-          at_least_one_frame_seen = 1;
-
           // now, go back as far as the total latency less, say, 100 ms, and check the presence of
           // frames from then onwards
 
@@ -2309,6 +2323,11 @@ void *player_thread_func(void *arg) {
             // debug(1,"%" PRId64 "",sync_error,inbuflength);
 
             // not too sure if abs() is implemented for int64_t, so we'll do it manually
+            if (at_least_one_frame_seen == 0) {
+            	at_least_one_frame_seen = 1;
+            	debug(1, " First audio frame sync error: %.3f milliseconds.", (1000.0*sync_error)/config.output_rate);
+            }
+
             int64_t abs_sync_error = sync_error;
             if (abs_sync_error < 0)
               abs_sync_error = -abs_sync_error;
