@@ -2292,11 +2292,11 @@ void *player_thread_func(void *arg) {
                       generate_zero_frames(final_adjustment_silence, final_adjustment_length_sized, config.output_format,
                                            conn->enable_dither, conn->previous_random_number);
 
-                  debug(2, "make a final sync adjustment of %d frames.", final_adjustment_length_sized - first_frame_early_bias);
+                  debug(2, "make a final sync adjustment of %d frames.", (-sync_error) - first_frame_early_bias);
                   config.output->play(final_adjustment_silence, final_adjustment_length_sized);
                   free(final_adjustment_silence);
                 } else {
-                  warn("Failed to allocate memory for a final__adjustment_silence buffer of %d frames for a "
+                  warn("Failed to allocate memory for a final_adjustment_silence buffer of %d frames for a "
                        "sync error of %d frames.",
                        final_adjustment_length_sized, sync_error);
                 }
