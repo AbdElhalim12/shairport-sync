@@ -1015,29 +1015,14 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
         notified_buffer_empty = 0; // at least one buffer now -- diagnostic only.
         if (conn->ab_buffering) {  // if we are getting packets but not yet forwarding them to the
                                    // player
-//          int have_sent_prefiller_silence = 1; // set to true when we have sent at least one silent frame to the DAC
-          /*
-          int64_t reference_timestamp;
-          uint64_t reference_timestamp_time, remote_reference_timestamp_time;
-          get_reference_timestamp_stuff(&reference_timestamp, &reference_timestamp_time,
-                                        &remote_reference_timestamp_time, conn);
-          reference_timestamp *= conn->output_sample_ratio;
-          */
           if (conn->first_packet_timestamp == 0) { // if this is the very first packet
-                                                   // debug(1,"First frame seen, time %u, with %d
-            // frames...",curframe->timestamp,seq_diff(ab_read, ab_write));
-
             if (have_timestamp_timing_information(conn)) { // if we have a reference time
               // debug(1,"First frame seen with timestamp...");
               conn->first_packet_timestamp =
                   curframe->given_timestamp; // we will keep buffering until we are
                                              // supposed to start playing this
-              // have_sent_prefiller_silence = 0;
-
-// debug(1, "First packet timestamp is %" PRId64 ".", conn->first_packet_timestamp);
-
-// say we have started playing here
 #ifdef CONFIG_METADATA
+// say we have started receiving frames here
               debug(2, "pffr");
               send_ssnc_metadata(
                   'pffr', NULL, 0,
@@ -1048,9 +1033,7 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
               // We will send packets of silence from now until that time and then we will send the
               // first packet, which will be followed by the subsequent packets.
 
-              // we will get a fix every second or so, which will be stored as a pair consisting of
-              // the time when the packet with a particular timestamp should be played, neglecting
-              // latencies, etc.
+              // every second or so, we get a reference on when a particular packet should be played.
 
               // It probably won't  be the timestamp of our first packet, however, so we might have
               // to do some calculations.
@@ -1063,19 +1046,18 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
               // that the audio back end has a latency of 100 ms, we would
               // ask for the first packet to be emitted 100 ms earlier than it should, i.e. -4410
               // frames, so that when it got through the audio back end,
-              // if would be in sync. To do this, we would give it a latency offset of -100 ms, i.e.
+
+              // if would be in sync. To do this, we would give it a latency offset of -0.1 sec, i.e.
               // -4410 frames.
-
-              // debug(1, "Output sample ratio is %d", conn->output_sample_ratio);
-
-              // what we are asking for here is "what is the local time at which time the calculated
-              // frame should be played"
 
               uint64_t should_be_time;
 							uint32_t effective_latency = conn->latency;
 
 							get_and_check_effective_latency(conn, &effective_latency,config.audio_backend_latency_offset);
 							// we are ignoring the returned status because it will be captured on subsequent frames, below.
+
+              // what we are asking for here is "what is the local time at which time the calculated
+              // frame should be played"
 
               frame_to_local_time(conn->first_packet_timestamp + effective_latency, // this will go modulo 2^32
                                   &should_be_time,
@@ -1105,7 +1087,6 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
 										config.audio_backend_latency_offset = 0; //set it to zero
 										conn->unachievable_audio_backend_latency_offset_notified = 1;
 									};
-//									effective_latency = 0 ;
 									break;
 								case 1:
 									if (conn->unachievable_audio_backend_latency_offset_notified == 0) {
@@ -1124,54 +1105,11 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
 
               conn->first_packet_time_to_play = should_be_time;
 
-/*
-            // we want the frames of silence sent at the start to be fairly large in case the output
-            // device's minimum buffer size is large. But they can't be greater than the silent
-            // lead_in time
-            // which is either the agreed latency or the silent lead-in time specified by the
-            // setting
-            // In fact, if should be some fraction of them, to allow for adjustment.
-            int64_t adjustment_interval_frames = (int64_t)(config.lead_in_silence_adjustment_interval * conn->input_rate);
-            int64_t initial_silence_frames = (int64_t)(config.lead_in_silence_initial_period * conn->input_rate);
-
-            int64_t max_dac_delay = effective_latency;
-            if (config.audio_backend_silent_lead_in_time_auto == 0)
-              max_dac_delay =
-                  (int64_t)(config.audio_backend_silent_lead_in_time * conn->input_rate);
-
-            int64_t filler_size = adjustment_interval_frames;
-
-            // should check that the audio_backend_silent_lead_in_time is greater than the desired_buffer_size
-            if (have_sent_prefiller_silence == 0) {
-            	int64_t delay_before_adjustments = max_dac_delay - config.lead_in_silence_minimum_adjustments_to_make * adjustment_interval_frames;
-            	if (delay_before_adjustments > initial_silence_frames)
-            		filler_size = initial_silence_frames;
-            	else
-            		filler_size = max_dac_delay / (config.lead_in_silence_minimum_adjustments_to_make + 1);
-            	// debug(1,"Initial filler size: %" PRId64 " frames.", filler_size);
-            }
-            */
-
-            if (local_time_now > conn->first_packet_time_to_play) {
+            	if (local_time_now > conn->first_packet_time_to_play) {
               uint64_t lateness = local_time_now - conn->first_packet_time_to_play;
               debug(2, "Gone past starting time by %" PRIu64 " nanoseconds.", lateness);
               // have_sent_prefiller_silence = 1;
               conn->ab_buffering = 0;
-
-              // we've gone past the time...
-              // debug(1,"Run past the exact start time by %llu frames, with time now of %llx, fpttp
-              // of %llx and dac_delay of %d and %d packets;
-              // flush.",(((tn-conn->first_packet_time_to_play)*config.output_rate)>>32)+dac_delay,tn,conn->first_packet_time_to_play,dac_delay,seq_diff(ab_read,
-              // ab_write));
-
-              /*
-                            if (config.output->flush)
-                              config.output->flush();
-                            ab_resync(conn);
-                            conn->first_packet_timestamp = 0;
-                            conn->first_packet_time_to_play = 0;
-                            conn->time_since_play_started = 0;
-              */
             } else {
               // do some calculations
               int64_t lead_time = conn->first_packet_time_to_play - local_time_now;
@@ -1188,96 +1126,35 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
                         ((conn->first_packet_time_to_play - local_time_now) * config.output_rate) / 1000000000;
                     int64_t exact_frame_gap = gross_frame_gap - dac_delay;
                     int64_t frames_needed_to_maintain_desired_buffer = (int64_t)(config.audio_backend_buffer_desired_length * config.output_rate) - dac_delay;
-                    // debug(1,"Exact and gross frame gaps are %" PRId64 " and %" PRId64 " frames,
-                    // and the dac delay is %ld.", exact_frame_gap, gross_frame_gap, dac_delay);
-                    	/*
-                    if (exact_frame_gap < 0) {
-                      // we've gone past the time...
-                      debug(1,"Run past time.");
-                      // this might happen if a big clock adjustment was made at just the wrong
-                      // time.
-
-                      debug(1, "Run a bit past the exact start time by %" PRId64
-                               " frames with a DAC delay of %ld frames.",
-                            -exact_frame_gap, dac_delay);
-                      //if (config.output->flush)
-                      //  config.output->flush();
-                      //ab_resync(conn);
-                      //conn->first_packet_timestamp = 0;
-                      //conn->first_packet_time_to_play = 0;
-                    } else {
-                      int64_t fs = filler_size;
-                      if (fs > (max_dac_delay - dac_delay))
-                        fs = max_dac_delay - dac_delay;
-                      if (fs < 0) {
-                        // this could happen if the dac delay mysteriously grows between samples,
-                        // which could happen in a transition between having no interpolation and
-                        // having interpolated buffer numbers.
-
-                        // this will happen benignly if standby is being prevented, because a
-                        // thread in the alsa back end will be stuffing frames of silence in there
-                        // to keep it busy
-
-                        debug(3,
-                              "frame size (fs) < 0 with max_dac_delay of %lld and dac_delay of %ld",
-                              max_dac_delay, dac_delay);
-                        fs = 0;
-                      }
-                      */
-
                       // below, remember that exact_frame_gap and frames_needed_to_maintain_desired_buffer could both be negative
-                      int64_t fs = frames_needed_to_maintain_desired_buffer;
+										int64_t fs = frames_needed_to_maintain_desired_buffer;
 
-                      // if there isn't enough time to have the desired buffer size
-                      if (exact_frame_gap <= frames_needed_to_maintain_desired_buffer) {
-                      	fs = conn->max_frames_per_packet * 2;
-                      	/*
-                      	if (fs > exact_frame_gap)
+										// if there isn't enough time to have the desired buffer size
+										if (exact_frame_gap <= frames_needed_to_maintain_desired_buffer) {
+											fs = conn->max_frames_per_packet * 2;
+										}
 
-                      	//fs = exact_frame_gap - conn->max_frames_per_packet;
-                      	// if there isn't even enough time to do that...
-                      	if (fs < 0) {
-                      		debug(1,"no enough time even to break for a last check");
-                      		// just go with the exact frame gap
-                      		fs = exact_frame_gap;
-                      		conn->ab_buffering = 0;
-                      	}
-                      	*/
-                      }
-											if (exact_frame_gap <= conn->max_frames_per_packet * 2) {
-                        fs = exact_frame_gap;
-                        conn->ab_buffering = 0;
-                      }
-                      void *silence;
-                      // if (fs==0)
-                      //  debug(2,"Zero length silence buffer needed with gross_frame_gap of %lld
-                      //  and
-                      //  dac_delay of %lld.",gross_frame_gap,dac_delay);
-                      // the fs (number of frames of silence to play) can be zero in the DAC doesn't
-                      // start
-                      // outputting frames for a while -- it could get loaded up but not start
-                      // responding
-                      // for many milliseconds.
-                      if (fs > 0) {
-                        silence = malloc(conn->output_bytes_per_frame * fs);
-                        if (silence == NULL)
-                          debug(1, "Failed to allocate %d byte silence buffer.", fs);
-                        else {
-
-                          conn->previous_random_number = generate_zero_frames(
-                              silence, fs, config.output_format, conn->enable_dither,
-                              conn->previous_random_number);
-
-                          // debug(1,"Frames to start: %llu, DAC delay %d, buffer: %d
-                          // packets.",exact_frame_gap,dac_delay,seq_diff(conn->ab_read,
-                          // conn->ab_write, conn->ab_read));
-                          config.output->play(silence, fs);
-                          debug(3,"Sent %" PRId64 " frames of silence",fs);
-                          free(silence);
-                          have_sent_prefiller_silence = 1;
-                        }
-                      }
-//                    }
+										// if we are very close to the end of buffering, i.e. within to frame-lengths, add the remaining silence needed and end buffering
+										if (exact_frame_gap <= conn->max_frames_per_packet * 2) {
+											fs = exact_frame_gap;
+											conn->ab_buffering = 0;
+										}
+										void *silence;
+										if (fs > 0) {
+											silence = malloc(conn->output_bytes_per_frame * fs);
+											if (silence == NULL)
+												debug(1, "Failed to allocate %d byte silence buffer.", fs);
+											else {
+												// generate frames of silence with dither if necessary
+												conn->previous_random_number = generate_zero_frames(
+														silence, fs, config.output_format, conn->enable_dither,
+														conn->previous_random_number);
+												config.output->play(silence, fs);
+												debug(3,"Sent %" PRId64 " frames of silence",fs);
+												free(silence);
+												have_sent_prefiller_silence = 1;
+											}
+										}
                   } else {
 
                     if (resp == sps_extra_code_output_stalled) {
@@ -1297,7 +1174,7 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
                   }
                 } else {
                   // no delay function on back end -- just send the prefiller silence
-                  // debug(1,"Back end has no delay function.");
+                  // debug(2,"Back end has no delay function.");
                   // send the appropriate prefiller here...
 
                   void *silence;
