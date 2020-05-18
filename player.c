@@ -958,6 +958,8 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
       conn->first_packet_time_to_play = 0;
       conn->time_since_play_started = 0;
       conn->flush_requested = 0;
+      have_sent_prefiller_silence = 0;
+      dac_delay = 0;
     }
     debug_mutex_unlock(&conn->flush_mutex, 0);
 
@@ -1083,7 +1085,7 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
 
               if (local_time_now > conn->first_packet_time_to_play) {
                 uint64_t lateness = local_time_now - conn->first_packet_time_to_play;
-                debug(3, "First packet is %" PRIu64 " nanoseconds late! Flushing 0.5 seconds",
+                debug(2, "First packet is %" PRIu64 " nanoseconds late! Flushing 0.5 seconds",
                       lateness);
                 do_flush(conn->first_packet_timestamp + 5 * 4410, conn);
               }
@@ -1152,7 +1154,7 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
 
             if (local_time_now > conn->first_packet_time_to_play) {
               uint64_t lateness = local_time_now - conn->first_packet_time_to_play;
-              debug(3, "Gone past starting time by %" PRIu64 " nanoseconds.", lateness);
+              debug(2, "Gone past starting time by %" PRIu64 " nanoseconds.", lateness);
               // have_sent_prefiller_silence = 1;
               conn->ab_buffering = 0;
 
@@ -1174,11 +1176,12 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
               // do some calculations
               int64_t lead_time = conn->first_packet_time_to_play - local_time_now;
               if ((config.audio_backend_silent_lead_in_time_auto == 1) || (lead_time <= (int64_t)(config.audio_backend_silent_lead_in_time * (int64_t)1000000000))) {
-              	// debug(1,"Lead time: %" PRId64 ".", lead_time);
+              	debug(2,"Lead time: %" PRId64 ".", lead_time);
 
                 // debug(1,"Checking");
                 if (config.output->delay) {
                   // conn->first_packet_time_to_play is definitely later than local_time_now
+                  debug(2,"Checking");
                   int resp = 0;
                   dac_delay = 0;
                   if (have_sent_prefiller_silence != 0)
@@ -1275,11 +1278,11 @@ static abuf_t *buffer_get_frame(rtsp_conn_info *conn) {
                           debug(2,"Sent %" PRId64 " frames of silence",fs);
                           free(silence);
                           have_sent_prefiller_silence = 1;
-
                         }
                       }
 //                    }
                   } else {
+                  	debug(2,"Response is: %d.", resp);
                     if ((resp == sps_extra_code_output_stalled) &&
                         (conn->unfixable_error_reported == 0)) {
                       conn->unfixable_error_reported = 1;
